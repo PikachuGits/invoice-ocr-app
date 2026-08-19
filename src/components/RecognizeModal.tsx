@@ -9,11 +9,24 @@ interface ProgressPayload {
   message: string;
 }
 
+interface QueueFileStatus {
+  name: string;
+  status: "pending" | "ocr" | "done" | "failed";
+}
+
 interface QueuePayload {
   total: number;
   done: number;
   current: string;
+  files: QueueFileStatus[];
 }
+
+const FILE_STATUS_TEXT: Record<QueueFileStatus["status"], string> = {
+  pending: "等待中",
+  ocr: "识别中",
+  done: "已完成",
+  failed: "失败",
+};
 
 interface RecognizeModalProps {
   onClose: () => void;
@@ -151,7 +164,7 @@ function RecognizeModal({ onClose, onSuccess }: RecognizeModalProps) {
         {queue && (
           <div className="queue-panel">
             <div className="queue-head">
-              <span className="queue-title">排队进度</span>
+              <span className="queue-title">识别进度</span>
               <span className="queue-count">
                 {queue.done}/{queue.total} 个文件
               </span>
@@ -168,6 +181,21 @@ function RecognizeModal({ onClose, onSuccess }: RecognizeModalProps) {
               <div className="queue-current" title={queue.current}>
                 正在识别: {queue.current}
               </div>
+            )}
+            {queue.files.length > 0 && (
+              <ul className="queue-files">
+                {queue.files.map((f) => (
+                  <li key={f.name} className={`queue-file queue-file-${f.status}`}>
+                    <span className="queue-file-dot" />
+                    <span className="queue-file-name" title={f.name}>
+                      {f.name}
+                    </span>
+                    <span className="queue-file-status">
+                      {FILE_STATUS_TEXT[f.status]}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         )}

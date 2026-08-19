@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rust_xlsxwriter::{Color, Format, Workbook, Worksheet, XlsxError};
+use rust_xlsxwriter::{Color, Format, FormatBorder, Workbook, Worksheet, XlsxError};
 
 use crate::db::{InvoiceFile, InvoiceRecord};
 
@@ -165,42 +165,33 @@ fn max_detail_rows(words: &HashMap<String, serde_json::Value>) -> usize {
         .unwrap_or(0)
 }
 
+/// 发票块背景色：很淡的浅绿色，用于区分相邻发票。
+const BLOCK_BG: u32 = 0xF2F8F0;
+
+/// 块内基础格式：浅绿背景 + 黑色文字 + 边框线。
+fn block_base() -> Format {
+    Format::new()
+        .set_background_color(Color::RGB(BLOCK_BG))
+        .set_font_color(Color::Black)
+        .set_border(FormatBorder::Thin)
+}
+
 struct Styles {
     title: Format,
     group: Format,
-    group_detail: Format,
     label: Format,
+    value: Format,
     value_wrap: Format,
-    header: Format,
 }
-
-/// 发票块背景色：很淡的浅绿色，用于区分相邻发票。
-const BLOCK_BG: u32 = 0xF2F8F0;
 
 impl Styles {
     fn new() -> Self {
         Self {
-            title: Format::new()
-                .set_bold()
-                .set_font_size(14)
-                .set_background_color(Color::RGB(0x4A5FD4))
-                .set_font_color(Color::White),
-            group: Format::new()
-                .set_bold()
-                .set_font_size(12)
-                .set_background_color(Color::RGB(0xEDE9FE))
-                .set_font_color(Color::RGB(0x4C1D95)),
-            group_detail: Format::new()
-                .set_bold()
-                .set_font_size(12)
-                .set_background_color(Color::RGB(0x2F6FED))
-                .set_font_color(Color::White),
-            label: Format::new().set_bold(),
-            value_wrap: Format::new().set_text_wrap(),
-            header: Format::new()
-                .set_bold()
-                .set_background_color(Color::RGB(0x4A5FD4))
-                .set_font_color(Color::White),
+            title: block_base().set_bold().set_font_size(14),
+            group: block_base().set_bold().set_font_size(12),
+            label: block_base().set_bold(),
+            value: block_base(),
+            value_wrap: block_base().set_text_wrap(),
         }
     }
 }
@@ -208,9 +199,10 @@ impl Styles {
 /// 在 worksheet 中写入一张发票的完整详情块（返回块结束后下一行的行号）。
 /// 布局：
 ///   [发票标题]                       (可选, 单sheet模式显示)
-///   发票代码/号码/状态/次数/时间/附件
+///   发票代码/号码/时间/附件
 ///   分组标题 + 字段-值两列
 ///   商品明细表（表头 + 数据行）
+/// 整块统一使用浅绿背景 + 黑色文字 + 边框线。
 fn write_invoice_block(
     ws: &mut Worksheet,
     mut row: u32,
@@ -220,22 +212,16 @@ fn write_invoice_block(
     title: Option<&str>,
     styles: &Styles,
 ) -> Result<u32, XlsxError> {
-    // 块内所有单元格使用淡浅绿色背景，便于区分相邻发票
-    let label = styles.label.clone().set_background_color(Color::RGB(BLOCK_BG));
-    let value = Format::new().set_background_color(Color::RGB(BLOCK_BG));
-    let value_wrap = styles
-        .value_wrap
-        .clone()
-        .set_background_color(Color::RGB(BLOCK_BG));
-    let group = styles.group.clone().set_background_color(Color::RGB(BLOCK_BG));
-    let group_detail = styles
-        .group_detail
-        .clone()
-        .set_background_color(Color::RGB(BLOCK_BG));
-    let header = styles.header.clone().set_background_color(Color::RGB(BLOCK_BG));
+    let Styles {
+        title: st_title,
+        group: st_group,
+        label: st_label,
+        value: st_value,
+        value_wrap: st_value_wrap,
+    } = styles;
 
     if let Some(t) = title {
-        ws.merge_range(row, 0, row, 1, t, &styles.title)?;
+        ws.merge_range(row, 0, row, 1, t, st_title)?;
         row += 1;
     }
 
@@ -243,28 +229,19 @@ fn write_invoice_block(
     let mut meta: Vec<(String, String)> = vec![
         ("发票代码".to_string(), record.invoice_code.clone()),
         ("发票号码".to_string(), record.invoice_num.clone()),
-        (
-            "识别状态".to_string(),
-            if record.status == "success" {
-                "成功".to_string()
-            } else {
-                "失败".to_string()
-            },
-        ),
-        ("识别次数".to_string(), record.ocr_count.to_string()),
         ("识别时间".to_string(), record.created_at.clone()),
     ];
     let attachment_value = files
         .iter()
         .enumerate()
-        .map(|(i, f)| format!("{}. {}", i + 1, f.file_name))
+        .map(|(i, f)| format!("{}. {}", i + 1, f.file_path))
         .collect::<Vec<_>>()
         .join("\n");
     meta.push((format!("附件 ({})", files.len()), attachment_value));
 
     for (meta_label, meta_value) in meta {
-        ws.write_string_with_format(row, 0, &meta_label, &label)?;
-        ws.write_string_with_format(row, 1, &meta_value, &value_wrap)?;
+        ws.write_string_with_format(row, 0, &meta_label, st_label)?;
+        ws.write_string_with_format(row, 1, &meta_value, st_value_wrap)?;
         row += 1;
     }
 
@@ -281,19 +258,19 @@ fn write_invoice_block(
         .unwrap();
 
     // 并排标题行：购买方合并 A:B，销售方合并 C:D
-    ws.merge_range(row, 0, row, 1, "购买方", &group)?;
-    ws.merge_range(row, 2, row, 3, "销售方", &group)?;
+    ws.merge_range(row, 0, row, 1, "购买方", st_group)?;
+    ws.merge_range(row, 2, row, 3, "销售方", st_group)?;
     row += 1;
 
     // 左右两列同时写购买方/销售方字段，保持行对齐
     for i in 0..buyer.len().max(seller.len()) {
         if let Some((key, meta_label)) = buyer.get(i) {
-            ws.write_string_with_format(row, 0, *meta_label, &label)?;
-            ws.write_string_with_format(row, 1, scalar(words, key), &value)?;
+            ws.write_string_with_format(row, 0, *meta_label, st_label)?;
+            ws.write_string_with_format(row, 1, scalar(words, key), st_value)?;
         }
         if let Some((key, meta_label)) = seller.get(i) {
-            ws.write_string_with_format(row, 2, *meta_label, &label)?;
-            ws.write_string_with_format(row, 3, scalar(words, key), &value)?;
+            ws.write_string_with_format(row, 2, *meta_label, st_label)?;
+            ws.write_string_with_format(row, 3, scalar(words, key), st_value)?;
         }
         row += 1;
     }
@@ -303,30 +280,30 @@ fn write_invoice_block(
         if *group_title == "购买方" || *group_title == "销售方" {
             continue;
         }
-        ws.write_string_with_format(row, 0, *group_title, &group)?;
+        ws.write_string_with_format(row, 0, *group_title, st_group)?;
         row += 1;
         for (key, meta_label) in *fields {
             let field_value = scalar(words, key);
             if field_value.is_empty() {
                 continue;
             }
-            ws.write_string_with_format(row, 0, *meta_label, &label)?;
-            ws.write_string_with_format(row, 1, &field_value, &value)?;
+            ws.write_string_with_format(row, 0, *meta_label, st_label)?;
+            ws.write_string_with_format(row, 1, &field_value, st_value)?;
             row += 1;
         }
     }
 
     // 商品明细（动态列：仅显示有数据的字段）
-    ws.write_string_with_format(row, 0, "商品明细", &group_detail)?;
+    ws.write_string_with_format(row, 0, "商品明细", st_group)?;
     row += 1;
     let active_fields = active_list_fields(words);
 
     if active_fields.is_empty() {
-        ws.write_string_with_format(row, 0, "（无商品明细）", &value)?;
+        ws.write_string_with_format(row, 0, "（无商品明细）", st_value)?;
         row += 1;
     } else {
         for (col, (_, f_label)) in active_fields.iter().enumerate() {
-            ws.write_string_with_format(row, col as u16, *f_label, &header)?;
+            ws.write_string_with_format(row, col as u16, *f_label, st_group)?;
         }
         row += 1;
 
@@ -338,7 +315,7 @@ fn write_invoice_block(
         for i in 0..detail_rows {
             for (col, map) in list_maps.iter().enumerate() {
                 let v = map.get(&((i + 1) as u64)).cloned().unwrap_or_default();
-                ws.write_string_with_format(row, col as u16, v, &value)?;
+                ws.write_string_with_format(row, col as u16, v, st_value)?;
             }
             row += 1;
         }

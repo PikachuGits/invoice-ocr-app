@@ -473,6 +473,87 @@
   white-space: nowrap;
 }
 
+/* 每个文件的识别状态列表 */
+.queue-files {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.queue-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid #eef1f8;
+  font-size: 13px;
+}
+
+.queue-file-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #c5cbd8;
+}
+
+.queue-file-ocr .queue-file-dot {
+  background: #667eea;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.queue-file-done .queue-file-dot {
+  background: #22c55e;
+}
+
+.queue-file-failed .queue-file-dot {
+  background: #ef4444;
+}
+
+.queue-file-name {
+  flex: 1;
+  min-width: 0;
+  color: #555;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-file-status {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #999;
+}
+
+.queue-file-ocr .queue-file-status {
+  color: #667eea;
+}
+
+.queue-file-done .queue-file-status {
+  color: #16a34a;
+}
+
+.queue-file-failed .queue-file-status {
+  color: #dc2626;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
 .spinner {
   display: inline-block;
   width: 16px;

@@ -11,12 +11,22 @@ pub struct ProgressPayload {
     pub message: String,
 }
 
-/// 多文件排队进度：total 总文件数，done 已完成数，current 当前处理文件名。
+/// 单个文件的识别进度状态。
+#[derive(serde::Serialize, Clone)]
+pub struct QueueFileStatus {
+    pub name: String,
+    /// pending 等待中 / ocr 识别中 / done 已完成 / failed 失败
+    pub status: String,
+}
+
+/// 多文件排队进度：total 总文件数，done 已完成数，current 当前处理文件名，
+/// files 为每个文件的实时状态（按原始选择顺序）。
 #[derive(serde::Serialize, Clone)]
 pub struct QueuePayload {
     pub total: usize,
     pub done: usize,
     pub current: String,
+    pub files: Vec<QueueFileStatus>,
 }
 
 #[derive(serde::Serialize)]
@@ -287,6 +297,7 @@ pub async fn recognize_invoice(
     // 1. 文件级去重：已识别文件跳过（同文件不重复识别）
     let mut new_files: Vec<Recognized> = Vec::new();
     let mut cached_ids: Vec<i64> = Vec::new();
+    let mut skipped_paths: Vec<String> = Vec::new();
     for path in &image_paths {
         let _ = app.emit(
             "ocr-progress",
@@ -313,6 +324,7 @@ pub async fn recognize_invoice(
                 if !cached_ids.contains(&file.invoice_id) {
                     cached_ids.push(file.invoice_id);
                 }
+                skipped_paths.push(path.clone());
                 continue;
             }
             // 失败记录允许重新识别：先删除旧的失败发票
@@ -366,19 +378,58 @@ pub async fn recognize_invoice(
 
     // 1.5 逐个识别新文件，发出排队进度（跳过文件计入已完成）
     let total = image_paths.len();
-    let skipped = total - new_files.len();
-    let mut failed_files: Vec<String> = Vec::new();
-    let mut i = 0;
-    while i < new_files.len() {
-        let f = &mut new_files[i];
+
+    // 每个文件的实时状态（按原始选择顺序），跳过文件直接标记完成
+    let mut file_statuses: Vec<QueueFileStatus> = image_paths
+        .iter()
+        .map(|p| {
+            let name = std::path::Path::new(p)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(p)
+                .to_string();
+            let status = if skipped_paths.contains(p) {
+                "done"
+            } else {
+                "pending"
+            };
+            QueueFileStatus {
+                name,
+                status: status.into(),
+            }
+        })
+        .collect();
+    // path -> file_statuses 索引，用于更新对应文件状态
+    let mut status_idx: HashMap<String, usize> = HashMap::new();
+    for (idx, p) in image_paths.iter().enumerate() {
+        status_idx.insert(p.clone(), idx);
+    }
+
+    let emit_queue = |app: &AppHandle,
+                      files: &[QueueFileStatus],
+                      current: &str| {
+        let done = files
+            .iter()
+            .filter(|f| f.status == "done" || f.status == "failed")
+            .count();
         let _ = app.emit(
             "ocr-queue",
             QueuePayload {
                 total,
-                done: skipped + i,
-                current: f.file_name.clone(),
+                done,
+                current: current.to_string(),
+                files: files.to_vec(),
             },
         );
+    };
+
+    let mut failed_files: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < new_files.len() {
+        let f = &mut new_files[i];
+        let idx = status_idx.get(&f.path).copied().unwrap_or(0);
+        file_statuses[idx].status = "ocr".into();
+        emit_queue(&app, &file_statuses, &f.file_name);
         match recognize_one_file(&app, &f.path).await {
             Ok((raw, parsed, page_count)) => {
                 f.raw = raw;
@@ -388,6 +439,7 @@ pub async fn recognize_invoice(
                 let wr = &v["words_result"];
                 f.code = wr["InvoiceCode"].as_str().unwrap_or("").trim().to_string();
                 f.num = wr["InvoiceNum"].as_str().unwrap_or("").trim().to_string();
+                file_statuses[idx].status = "done".into();
                 i += 1;
             }
             Err(e) => {
@@ -400,6 +452,8 @@ pub async fn recognize_invoice(
                     },
                 );
                 log::warn!("批量识别文件失败 {}", msg);
+                file_statuses[idx].status = "failed".into();
+                emit_queue(&app, &file_statuses, "");
                 // 失败文件单独入库为失败发票，可在列表查看并重新识别
                 let invoice_id = db
                     .create_invoice("", "", &f.file_name, "", "failed")
@@ -433,14 +487,7 @@ pub async fn recognize_invoice(
             failed_files.join("\n")
         ));
     }
-    let _ = app.emit(
-        "ocr-queue",
-        QueuePayload {
-            total,
-            done: total,
-            current: String::new(),
-        },
-    );
+    emit_queue(&app, &file_statuses, "");
 
     // 2. 按发票号分组（无发票号的文件各自独立）
     let mut groups: Vec<Vec<Recognized>> = Vec::new();
