@@ -35,7 +35,7 @@ pub struct RowItem {
     pub row: String,
 }
 
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StandardResult {
     pub log_id: String,
     pub words_result_num: u64,
@@ -119,6 +119,11 @@ fn normalize_text(value: &str) -> String {
     s = Regex::new(r#"\$[^$]{0,20}\$"#)
         .unwrap()
         .replace_all(&s, "*")
+        .to_string();
+    // Drop useless leading watermark symbols, e.g. "ⓧ 壹仟肆佰玖拾柒圆贰角伍分"
+    s = s
+        .trim_start_matches(['ⓧ', 'Ⓧ', '✖', '✕', '❌', '✘', 'Ⓟ'])
+        .trim()
         .to_string();
     s.trim().to_string()
 }
@@ -1027,7 +1032,8 @@ pub fn make_standard_result(sparse: &HashMap<String, String>) -> StandardResult 
     }
 }
 
-/// Merge multiple sparse results (for multi-page documents).
+/// Merge multiple sparse results (for multi-page documents / multi-file invoices).
+/// 列表字段按 (row, word) 去重后合并，避免同一发票多图识别出重复明细。
 pub fn merge_sparse_results(
     target: &mut HashMap<String, String>,
     source: HashMap<String, String>,
@@ -1045,7 +1051,14 @@ pub fn merge_sparse_results(
                 serde_json::from_str(&existing).unwrap_or_default()
             };
             let new_list: Vec<RowItem> = serde_json::from_str(&value).unwrap_or_default();
-            existing_list.extend(new_list);
+            for item in new_list {
+                let dup = existing_list.iter().any(|e| {
+                    e.row == item.row && e.word.trim() == item.word.trim() && !item.word.is_empty()
+                });
+                if !dup {
+                    existing_list.push(item);
+                }
+            }
             target.insert(
                 field,
                 serde_json::to_string(&existing_list).unwrap_or_default(),
@@ -1070,6 +1083,11 @@ mod tests {
         assert_eq!(normalize_text("$*$货物$*$劳务"), "*货物*劳务");
         assert_eq!(normalize_text("普通文本"), "普通文本");
         assert_eq!(normalize_text("*建筑服务*工程款"), "*建筑服务*工程款");
+        assert_eq!(
+            normalize_text("ⓧ 壹仟肆佰玖拾柒圆贰角伍分"),
+            "壹仟肆佰玖拾柒圆贰角伍分"
+        );
+        assert_eq!(normalize_text("✖ 壹佰元整"), "壹佰元整");
     }
 
     // ============================================================
