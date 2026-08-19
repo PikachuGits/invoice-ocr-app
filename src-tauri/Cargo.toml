@@ -41,4 +41,5 @@ rust_xlsxwriter = "0.83"
 pdfium-render = { version = "0.8", features = ["image"] }
 pdfium-auto = "0.3"
 image = "0.25"
+dotenvy = "0.15"
 

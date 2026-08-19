@@ -1102,7 +1102,7 @@ mod tests {
 
     fn run_full_flow(path: &std::path::Path) -> Option<StandardResult> {
         let raw = std::fs::read_to_string(path).ok()?;
-        let client = crate::ocr_client::OcrClient::new();
+        let client = crate::ocr_client::OcrClient::new(None, None);
         let pages = client.parse_jsonl_response(&raw).ok()?;
         let mut sparse: HashMap<String, String> = HashMap::new();
         for page in &pages {

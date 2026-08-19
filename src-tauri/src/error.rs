@@ -21,6 +21,9 @@ pub enum AppError {
 
     #[error("Parse error: {0}")]
     Parse(String),
+
+    #[error("{0}")]
+    Config(String),
 }
 
 // Tauri invoke error conversion

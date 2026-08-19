@@ -10,7 +10,6 @@ const POLL_INTERVAL: u64 = 5;
 const MAX_POLL_COUNT: u64 = 720;
 
 const DEFAULT_API_URL: &str = "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs";
-const DEFAULT_TOKEN: &str = "b5b30b03e15868afc0bb9ec7996fc2979d46a283";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PageData {
@@ -43,6 +42,9 @@ impl Default for AppConfig {
 
 impl AppConfig {
     fn load() -> Self {
+        // 尝试从工作目录加载 .env（PADDLEOCR_TOKEN / PADDLEOCR_API_URL），不存在则忽略
+        let _ = dotenvy::dotenv();
+
         // Try to read config.json from the same directory as the executable,
         // or from the current working directory
         let config_paths = [
@@ -67,8 +69,8 @@ impl AppConfig {
         AppConfig::default()
     }
 
-    fn get_token(&self) -> String {
-        // Priority: env var > config file > default
+    /// 优先级：环境变量 > config.json。未配置时返回 None（不再内置默认 token）。
+    fn get_token(&self) -> Option<String> {
         std::env::var("PADDLEOCR_TOKEN")
             .ok()
             .filter(|s| !s.is_empty())
@@ -79,7 +81,6 @@ impl AppConfig {
                     Some(self.token.clone())
                 }
             })
-            .unwrap_or_else(|| DEFAULT_TOKEN.to_string())
     }
 
     fn get_api_url(&self) -> String {
@@ -104,10 +105,17 @@ pub struct OcrClient {
 }
 
 impl OcrClient {
-    pub fn new() -> Self {
+    /// 创建客户端。`db_token` / `db_api_url` 为数据库配置表（设置页）中的值，
+    /// 优先级：DB 配置 > 环境变量 > config.json。
+    pub fn new(db_token: Option<String>, db_api_url: Option<String>) -> Self {
         let config = AppConfig::load();
-        let token = config.get_token();
-        let api_url = config.get_api_url();
+        let token = db_token
+            .filter(|s| !s.is_empty())
+            .or_else(|| config.get_token());
+        let api_url = db_api_url
+            .filter(|s| !s.is_empty())
+            .or_else(|| Some(config.get_api_url()))
+            .unwrap_or_default();
         log::info!("OCR API: {}", api_url);
         let client = Client::builder()
             .timeout(Duration::from_secs(REQUEST_TIMEOUT))
@@ -115,13 +123,25 @@ impl OcrClient {
             .expect("Failed to build HTTP client");
         Self {
             client,
-            token,
+            token: token.unwrap_or_default(),
             api_url,
         }
     }
 
+    /// 提交前校验：Token 未配置时给出明确提示。
+    fn ensure_token(&self) -> Result<(), AppError> {
+        if self.token.is_empty() {
+            return Err(AppError::Config(
+                "未配置 API Token，请到「设置 → API 配置」填写，或在 .env 中设置 PADDLEOCR_TOKEN"
+                    .to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Submit an image file for OCR, return the job ID.
     pub async fn submit(&self, file_path: &str) -> Result<String, AppError> {
+        self.ensure_token()?;
         log::info!("[OCR] 处理文件: {}", file_path);
         let headers = self.auth_headers();
 

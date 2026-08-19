@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::db::{Database, InvoiceFile, InvoiceRecord};
 use crate::invoice_extractor;
@@ -63,7 +63,11 @@ async fn run_ocr_pages(
     app: &AppHandle,
     paths: &[String],
 ) -> Result<(String, String), String> {
-    let client = OcrClient::new();
+    // 设置页保存的配置优先（DB > 环境变量 > config.json）
+    let db = app.state::<Database>();
+    let db_token = db.get_config("token").ok().flatten();
+    let db_api_url = db.get_config("api_url").ok().flatten();
+    let client = OcrClient::new(db_token, db_api_url);
 
     let mut all_pages: Vec<crate::ocr_client::PageData> = Vec::new();
     let mut raw_parts: Vec<String> = Vec::new();
