@@ -27,10 +27,12 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "resources": [],
+    "resources": {
+      "./resources/pdfium.dll": "pdfium.dll"
+    },
     "windows": {
       "webviewInstallMode": {
-        "type": "embedBootstrapper",
+        "type": "offlineInstaller",
         "silent": true
       }
     },

@@ -122,6 +122,18 @@ git push origin v0.1.0
 | `invoice-ocr-app_0.1.0_x64-setup.exe` | NSIS 安装包（推荐，双击安装） |
 | `invoice-ocr-app_0.1.0_x64_en-US.msi` | MSI 安装包 |
 
+### 离线安装说明（针对无外网/网络受限的机器）
+
+1. **pdfium 已内置，不再联网下载**：`src-tauri/resources/pdfium.dll` 会随安装包分发
+   （配置见 `tauri.windows.conf.json` 的 `bundle.resources`）。应用启动后优先加载安装目录下的
+   `pdfium.dll`，不会再触发 pdfium-auto 的 GitHub 下载（此前在国内网络下容易超时）。
+   - 更新 pdfium 版本：运行 `scripts/download-pdfium.ps1`（Windows）或
+     `scripts/download-pdfium.sh`（macOS/Linux），并把新文件提交到仓库。
+2. **WebView2 使用离线安装器**：`tauri.windows.conf.json` 中
+   `webviewInstallMode.type = "offlineInstaller"`。打包时 CI 会自动下载 WebView2 离线安装器
+   （约 127MB）嵌入安装包，目标机器**无需联网**也能装好 WebView2，不再出现“未安装”提示。
+   - 代价：安装包体积增加约 127MB；打包机需要能访问微软 CDN（GitHub Actions 自带，无需配置）。
+
 ### 费用说明
 
 - 公开仓库：GitHub Actions 完全免费

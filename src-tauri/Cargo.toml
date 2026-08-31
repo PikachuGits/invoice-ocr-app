@@ -5,20 +5,15 @@ description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [lib]
-# The `_lib` suffix may seem redundant but it is necessary
-# to make the lib name unique and wouldn't conflict with the bin name.
-# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "invoice_ocr_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.6", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2.11", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 reqwest = { version = "0.12", features = ["json", "multipart"] }
@@ -38,8 +33,9 @@ hex = "0.4"
 dirs = "5"
 rfd = "0.15"
 rust_xlsxwriter = "0.83"
-pdfium-render = { version = "0.8", features = ["image"] }
-pdfium-auto = "0.3"
+# 注意：不要启用 core_graphics / libc++ / libstdc++ 等隐含 "static" 的 feature，
+# 否则 pdfium-render 0.9.x 会编译为静态链接模式，bind_to_system_library / bind_to_library 将不可用。
+pdfium-render = { version = "0.9.3", features = ["image_025"] }
+pdfium-auto = "0.3.1"
 image = "0.25"
 dotenvy = "0.15"
-
