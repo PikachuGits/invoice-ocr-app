@@ -84,7 +84,7 @@ pnpm tauri build
 
 | 文件 | 说明 |
 | --- | --- |
-| `dmg/invoice-ocr-app_0.1.0_aarch64.dmg` | 安装包（推荐分发给普通用户） |
+| `dmg/invoice-ocr-app_0.3.0_aarch64.dmg` | 安装包（推荐分发给普通用户） |
 | `macos/invoice-ocr-app.app` | 未压缩的 .app 程序 |
 
 > 注意：Tauri 不支持跨平台打包。macOS 上只能打 macOS 包，Windows 安装包需在 Windows 环境或 CI 中构建（见下）。
@@ -98,9 +98,9 @@ pnpm tauri build
 版本号与 `src-tauri/tauri.conf.json` 的 `version` 保持一致：
 
 ```bash
-# 假设当前版本 0.1.0
-git tag v0.1.0
-git push origin v0.1.0
+# 假设当前版本 0.3.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 推送后自动触发打包，约 10 分钟完成。
@@ -119,8 +119,8 @@ git push origin v0.1.0
 
 | 文件 | 说明 |
 | --- | --- |
-| `invoice-ocr-app_0.1.0_x64-setup.exe` | NSIS 安装包（推荐，双击安装） |
-| `invoice-ocr-app_0.1.0_x64_en-US.msi` | MSI 安装包 |
+| `invoice-ocr-app_0.3.0_x64-setup.exe` | NSIS 安装包（推荐，双击安装） |
+| `invoice-ocr-app_0.3.0_x64_en-US.msi` | MSI 安装包 |
 
 ### 离线安装说明（针对无外网/网络受限的机器）
 
@@ -174,7 +174,7 @@ jobs:                          # 任务（可多个，并行执行）
 | 缩进 | 必须用**空格**（2 格），不能用 Tab |
 | 键值 | `键: 值`，冒号后要有空格 |
 | 列表 | 以 `- ` 开头（如 steps 每一项） |
-| 触发条件 | `tags: ["v*"]` 中 `v*` 是通配符，匹配 `v0.1.0`、`v1.2.3` 等 |
+| 触发条件 | `tags: ["v*"]` 中 `v*` 是通配符，匹配 `v0.3.0`、`v1.2.3` 等 |
 | 版本一致性 | tag 中的版本号必须与 `src-tauri/tauri.conf.json` 的 `version` 一致 |
 | Token | `secrets.GITHUB_TOKEN` 由 GitHub 自动提供，无需手动配置 |
 | 字符串 | 含中文/空格的值（如 releaseName）用双引号包裹 |
@@ -197,10 +197,10 @@ jobs:                          # 任务（可多个，并行执行）
 git add -A
 git commit -m "feat: xxx"
 
-# 3. 打 tag 并推送（tag 名 = v + 新版本号，如 v0.2.0）
-git tag v0.2.0
+# 3. 打 tag 并推送（tag 名 = v + 新版本号，如 v0.3.0）
+git tag v0.3.0
 git push origin main
-git push origin v0.2.0
+git push origin v0.3.0
 
 # 4. 等待 CI 打包完成（仓库 Actions 页看进度）
 # 5. 到 Releases 页发布草稿
