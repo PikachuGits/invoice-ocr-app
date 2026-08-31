@@ -27,12 +27,24 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": [
+      {
+        "src": "./resources/pdfium.dll",
+        "target": "pdfium.dll"
+      }
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "webview2Installer": {
+        "downloadUrl": "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
+        "mode": "embed"
+      }
+    }
   }
 }

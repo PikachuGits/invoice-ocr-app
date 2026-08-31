@@ -29,11 +29,38 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # ========== 关键步骤：预下载 pdfium 到 pdfium-sys 期望的缓存路径 ==========
+      - name: Prepare pdfium binaries
+        shell: pwsh
+        run: |
+          # 设置缓存根（默认 ~/.cache/pdfium，但可以显式指定）
+          $cacheRoot = "$env:USERPROFILE\.cache\pdfium"
+          $platform = "win64"
+          $version = "chromium-7961"          # 请与您的 pdfium-render 版本匹配
+          $targetDir = Join-Path $cacheRoot $platform $version
+          New-Item -ItemType Directory -Force -Path "$targetDir\bin" | Out-Null
+
+          $tarball = "$env:TEMP\pdfium-win-x64.tgz"
+          Invoke-WebRequest -Uri "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7961/pdfium-win-x64.tgz" -OutFile $tarball
+          tar -xzf $tarball -C $targetDir     # 解压后 bin/pdfium.dll 直接出现在 $targetDir/bin 下
+
+      # ========== 同时将 dll 复制到项目 resources，供打包使用 ==========
+      - name: Copy pdfium.dll to resources
+        shell: pwsh
+        run: |
+          $cacheRoot = "$env:USERPROFILE\.cache\pdfium"
+          $platform = "win64"
+          $version = "chromium-7961"
+          $dllPath = Join-Path $cacheRoot $platform $version "bin\pdfium.dll"
+          New-Item -ItemType Directory -Force -Path "./resources" | Out-Null
+          Copy-Item $dllPath "./resources/pdfium.dll" -Force
+
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      # ========== 升级到 tauri-action@v1 ==========
       - name: Build & create release
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1          # 重要：从 v0 升级到 v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
