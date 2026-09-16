@@ -3,7 +3,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::db::{Database, InvoiceFile, InvoiceRecord};
 use crate::invoice_extractor;
-use crate::ocr_client::OcrClient;
+use crate::ocr_client::{OcrClient, OcrProvider, OcrSettings};
 
 #[derive(serde::Serialize, Clone)]
 pub struct ProgressPayload {
@@ -68,19 +68,34 @@ fn md5_of_file(path: &str) -> Result<String, String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
+/// 构建 OcrClient（从 DB 读取设置）。
+fn build_ocr_client(db: &Database) -> OcrClient {
+    let settings = OcrSettings::from_db(|key| db.get_config(key).ok().flatten());
+    OcrClient::new(settings)
+}
+
 /// 对一组图片依次提交识别并合并多页结果。
+/// 返回 (raw_json, parsed_json)。
 async fn run_ocr_pages(
     app: &AppHandle,
     paths: &[String],
 ) -> Result<(String, String), String> {
-    // 设置页保存的配置优先（DB > 环境变量 > config.json）
     let db = app.state::<Database>();
-    let db_token = db.get_config("token").ok().flatten();
-    let db_api_url = db.get_config("api_url").ok().flatten();
-    let client = OcrClient::new(db_token, db_api_url);
+    let client = build_ocr_client(&db);
+    let provider = client.settings_provider();
 
-    let mut all_pages: Vec<crate::ocr_client::PageData> = Vec::new();
+    let emit = |status: &str, message: String| {
+        let _ = app.emit(
+            "ocr-progress",
+            ProgressPayload {
+                status: status.into(),
+                message,
+            },
+        );
+    };
+
     let mut raw_parts: Vec<String> = Vec::new();
+    let mut merged_sparse: HashMap<String, String> = HashMap::new();
 
     for (idx, path) in paths.iter().enumerate() {
         let msg = if paths.len() > 1 {
@@ -88,69 +103,49 @@ async fn run_ocr_pages(
         } else {
             "正在提交图片...".to_string()
         };
-        let _ = app.emit(
-            "ocr-progress",
-            ProgressPayload {
-                status: "progress".into(),
-                message: msg,
-            },
-        );
+        emit("progress", msg);
 
-        let job_id = client.submit(path).await.map_err(|e| {
-            let _ = app.emit(
-                "ocr-progress",
-                ProgressPayload {
-                    status: "error".into(),
-                    message: format!("提交失败: {}", e),
-                },
-            );
-            e.to_string()
-        })?;
-
-        let (pages, raw_json) = client
-            .poll(&job_id, |status| {
-                let _ = app.emit(
-                    "ocr-progress",
-                    ProgressPayload {
-                        status: "progress".into(),
-                        message: status,
-                    },
-                );
-            })
-            .await
-            .map_err(|e| {
-                let _ = app.emit(
-                    "ocr-progress",
-                    ProgressPayload {
-                        status: "error".into(),
-                        message: format!("识别失败: {}", e),
-                    },
-                );
-                e.to_string()
-            })?;
-
-        all_pages.extend(pages);
-        if !raw_json.trim().is_empty() {
-            raw_parts.push(raw_json);
+        match provider {
+            OcrProvider::Paddleocr => {
+                let (pages, raw_json) = client
+                    .recognize(path, |status| emit("progress", status))
+                    .await
+                    .map_err(|e| {
+                        emit("error", format!("识别失败: {}", e));
+                        e.to_string()
+                    })?;
+                for page in &pages {
+                    let sparse = invoice_extractor::parse_invoice_from_markdown(
+                        &page.markdown_text,
+                        &page.blocks,
+                    );
+                    invoice_extractor::merge_sparse_results(&mut merged_sparse, sparse);
+                }
+                if !raw_json.trim().is_empty() {
+                    raw_parts.push(raw_json);
+                }
+            }
+            OcrProvider::Scnet => {
+                let (sparse_list, raw_json) = client
+                    .recognize_sparse(path, |status| emit("progress", status))
+                    .await
+                    .map_err(|e| {
+                        emit("error", format!("识别失败: {}", e));
+                        e.to_string()
+                    })?;
+                for sparse in sparse_list {
+                    invoice_extractor::merge_sparse_results(&mut merged_sparse, sparse);
+                }
+                if !raw_json.trim().is_empty() {
+                    raw_parts.push(raw_json);
+                }
+            }
         }
     }
 
-    let _ = app.emit(
-        "ocr-progress",
-        ProgressPayload {
-            status: "progress".into(),
-            message: "正在解析发票...".into(),
-        },
-    );
+    emit("progress", "正在解析发票...".to_string());
 
-    let mut sparse: HashMap<String, String> = HashMap::new();
-    for page in &all_pages {
-        let page_result =
-            invoice_extractor::parse_invoice_from_markdown(&page.markdown_text, &page.blocks);
-        invoice_extractor::merge_sparse_results(&mut sparse, page_result);
-    }
-
-    let result = invoice_extractor::make_standard_result(&sparse);
+    let result = invoice_extractor::make_standard_result(&merged_sparse);
     let parsed_json = serde_json::to_string(&result).map_err(|e| e.to_string())?;
     let raw_json = raw_parts.join("\n");
 
